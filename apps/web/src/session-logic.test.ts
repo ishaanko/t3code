@@ -2832,6 +2832,21 @@ describe("background shells", () => {
     });
   });
 
+  it("settles a killed shell from its terminal task.updated status", () => {
+    const killed = makeActivity({
+      id: "shell-killed",
+      createdAt: "2026-02-23T00:05:00.000Z",
+      kind: "task.updated",
+      summary: "Task updated",
+      tone: "info",
+      payload: { taskId: "sh-1", taskType: "local_bash", toolUseId: "call-1", status: "cancelled" },
+    });
+    const entries = deriveWorkLogEntries([shellStarted, ...toolRows(true), killed]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.toolLifecycleStatus).toBe("stopped");
+    expect(entries[0]?.backgroundTaskRunning).toBeUndefined();
+  });
+
   it("leaves foreground shells alone", () => {
     const entries = deriveWorkLogEntries([
       shellStarted,

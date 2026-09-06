@@ -786,10 +786,16 @@ function deriveBackgroundShellStatusByToolCallId(
         if (!toolCallId) break;
         if (activity.kind === "task.started") {
           startedToolCallIds.add(toolCallId);
-        } else if (activity.kind === "task.updated") {
-          if (payload.isBackgrounded === true) backgroundToolCallIds.add(toolCallId);
-        } else {
-          terminalStatusByToolCallId.set(toolCallId, backgroundShellTerminalStatus(payload.status));
+          break;
+        }
+        if (activity.kind === "task.updated" && payload.isBackgrounded === true) {
+          backgroundToolCallIds.add(toolCallId);
+        }
+        // A killed shell ends with a terminal task.updated and no
+        // task.completed, so status patches settle the row too.
+        const terminalStatus = backgroundShellTerminalStatus(payload.status);
+        if (activity.kind === "task.completed" || terminalStatus !== undefined) {
+          terminalStatusByToolCallId.set(toolCallId, terminalStatus ?? "completed");
         }
         break;
       }
@@ -810,9 +816,11 @@ function deriveBackgroundShellStatusByToolCallId(
   return statusByToolCallId;
 }
 
-/** task.completed `status` (RuntimeTaskStatus) → the tool row vocabulary. */
-function backgroundShellTerminalStatus(status: unknown): WorkLogToolLifecycleStatus {
+/** Terminal task `status` (RuntimeTaskStatus) → the tool row vocabulary; undefined while live. */
+function backgroundShellTerminalStatus(status: unknown): WorkLogToolLifecycleStatus | undefined {
   switch (status) {
+    case "completed":
+      return "completed";
     case "failed":
       return "failed";
     case "cancelled":
@@ -820,7 +828,7 @@ function backgroundShellTerminalStatus(status: unknown): WorkLogToolLifecycleSta
     case "stopped":
       return "stopped";
     default:
-      return "completed";
+      return undefined;
   }
 }
 
