@@ -629,10 +629,13 @@ function deriveTurnFolds(input: {
       if (!isCompaction && index > terminalEntryIndex && !isSingleTrailingActivity) {
         continue;
       }
-      // Agent-spawn CTA rows never fold: workflows outlive their launching
-      // turn (dynamic spawns, background execution), and folding the CTA
-      // when the turn settles makes a still-running fleet invisible.
-      if (entry.kind === "work" && entry.entry.agentSpawn !== undefined) {
+      // Agent-spawn CTA rows and running background shells never fold: both
+      // outlive their launching turn, and folding them when the turn settles
+      // makes a still-running fleet or shell invisible.
+      if (
+        entry.kind === "work" &&
+        (entry.entry.agentSpawn !== undefined || entry.entry.backgroundTaskRunning === true)
+      ) {
         continue;
       }
       hiddenEntryIds.add(entry.id);
@@ -826,11 +829,14 @@ export function deriveMessagesTimelineRows(input: {
     input.isWorking &&
     index >= activeTurnHeaderIndex &&
     (unsettledTurnId === null || timelineEntryTurnId(entry) === unsettledTurnId);
+  // A background shell keeps its live row after its turn settles, the same
+  // row an in-progress tool gets during the active turn.
   const workEntryIsInActiveRun = (entry: WorkLogEntry) =>
-    input.isWorking &&
-    unsettledTurnId !== null &&
-    entry.toolLifecycleStatus === "inProgress" &&
-    entry.turnId === unsettledTurnId;
+    entry.backgroundTaskRunning === true ||
+    (input.isWorking &&
+      unsettledTurnId !== null &&
+      entry.toolLifecycleStatus === "inProgress" &&
+      entry.turnId === unsettledTurnId);
   const activeToolEntries: Array<Extract<TimelineEntry, { kind: "work" }>> = [];
   for (let index = input.timelineEntries.length - 1; index >= activeTurnHeaderIndex; index -= 1) {
     const entry = input.timelineEntries[index]!;
