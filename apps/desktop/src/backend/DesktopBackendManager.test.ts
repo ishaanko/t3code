@@ -4,7 +4,6 @@ import {
   DesktopTelemetryControlMessage,
 } from "@t3tools/contracts";
 import { assert, describe, it } from "@effect/vitest";
-import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -1507,18 +1506,17 @@ describe("DesktopBackendManager", () => {
     ),
   );
 
-  it.effect("stopAllPoolInstances stops all backends with timeout", () =>
+  it.effect("stopAllPoolInstances bounds the quit finalizer when backends hang", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        // Regression test: validates that stopAllPoolInstances applies a
-        // timeout to each stop call, bounding the wait time even when
-        // backends hang during teardown. This directly tests the actual
-        // implementation used by the quit path.
-        const stopped: string[] = [];
-        const teardownStarted = yield* Deferred.make<void>();
+        // Each backend's process-scope finalizer reports when it starts and
+        // when it finishes, keyed by instance name, so the test can prove
+        // both backends reached each milestone instead of inferring it from
+        // a shared flag or a clock advance.
+        const teardownStarted = yield* Queue.unbounded<string>();
+        const teardownFinished = yield* Queue.unbounded<string>();
         const allowTeardown = yield* Deferred.make<void>();
 
-        // Create two instances to simulate pool.list returning multiple backends
         const makeInstance = (name: string) =>
           makeTestInstance({
             spawnerLayer: Layer.succeed(
@@ -1528,19 +1526,13 @@ describe("DesktopBackendManager", () => {
                   const scope = yield* Scope.Scope;
                   yield* Scope.addFinalizer(
                     scope,
-                    Deferred.succeed(teardownStarted, undefined).pipe(
+                    Queue.offer(teardownStarted, name).pipe(
                       Effect.andThen(Deferred.await(allowTeardown)),
-                      Effect.andThen(
-                        Effect.sync(() => {
-                          stopped.push(name);
-                        }),
-                      ),
+                      Effect.andThen(Queue.offer(teardownFinished, name)),
                       Effect.asVoid,
                     ),
                   );
-                  return makeProcess({
-                    exitCode: Effect.never,
-                  });
+                  return makeProcess({ exitCode: Effect.never });
                 }),
               ),
             ),
@@ -1553,45 +1545,35 @@ describe("DesktopBackendManager", () => {
         yield* instance1.start;
         yield* instance2.start;
 
-        // Create a mock pool with the instances we just started
         const mockPool = Layer.succeed(DesktopBackendPool.DesktopBackendPool, {
           list: Effect.succeed([instance1, instance2]),
-          get: (id: DesktopBackendPool.BackendInstanceId) => Effect.succeed(Option.none()),
-          primary: Effect.failCause(Cause.die(new Error("primary not implemented"))),
-          register: () =>
-            Effect.failCause(
-              Cause.die(
-                new DesktopBackendPool.DesktopBackendPoolInstanceAlreadyRegisteredError({
-                  id: "test",
-                }),
-              ),
-            ),
-          unregister: () =>
-            Effect.failCause(
-              Cause.die(new DesktopBackendPool.DesktopBackendPoolCannotUnregisterPrimaryError()),
-            ),
+          get: () => Effect.succeed(Option.none()),
+          primary: Effect.die(new Error("primary not implemented")),
+          register: () => Effect.die(new Error("register not implemented")),
+          unregister: () => Effect.die(new Error("unregister not implemented")),
         });
 
-        // Call the actual stopAllPoolInstances function with the mock pool provided as a service
-        const quitFiber = yield* DesktopApp.stopAllPoolInstances().pipe(
-          Effect.provide(mockPool),
-          Effect.forkChild,
-        );
+        // Mirror the quit path: register stopAllPoolInstances as a scope
+        // finalizer and let the scope close run it, rather than calling it
+        // as an ordinary interruptible effect.
+        const quitFiber = yield* Effect.scoped(
+          Effect.addFinalizer(() => DesktopApp.stopAllPoolInstances()),
+        ).pipe(Effect.provide(mockPool), Effect.forkChild);
 
-        // Wait for teardown to start, then verify quit completes within timeout
-        yield* Deferred.await(teardownStarted).pipe(Effect.timeout("1 second"));
+        const started = yield* Queue.takeN(teardownStarted, 2);
+        assert.deepEqual(started.toSorted(), ["instance1", "instance2"]);
+
+        // Both backends are now hung in teardown. Advancing past the 5s
+        // budget must let the quit finalizer return without them.
         yield* TestClock.adjust(Duration.seconds(5));
+        yield* Fiber.join(quitFiber);
+        assert.equal(yield* Queue.size(teardownFinished), 0);
 
-        // stopAllPoolInstances should complete after timeout, even though teardown is hanging
-        yield* Fiber.join(quitFiber).pipe(Effect.timeout("1 second"));
-        assert.equal(stopped.length, 0, "teardown should not have completed yet");
-
-        // Let teardown finish
+        // The timed-out closes keep running in the background and finish
+        // once the backends unblock.
         yield* Deferred.succeed(allowTeardown, undefined);
-        yield* TestClock.adjust(Duration.millis(100));
-
-        // Now both should have stopped
-        assert.equal(stopped.length, 2, "both instances should have stopped");
+        const finished = yield* Queue.takeN(teardownFinished, 2);
+        assert.deepEqual(finished.toSorted(), ["instance1", "instance2"]);
       }).pipe(Effect.provide(TestClock.layer())),
     ),
   );
