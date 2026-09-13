@@ -988,6 +988,36 @@ it.effect("discovers editors through the service API", () =>
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
+// The Antigravity CLI installs `agy.cmd` on Windows too, so the IDE must be
+// found by its own shim and never by the CLI. This runs on Windows hosts,
+// unlike the posix stub tests above.
+it.effect("tells the Antigravity IDE shim apart from the agy CLI on Windows", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const cliDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-agy-cli-" });
+    const ideDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-agy-ide-" });
+    yield* fileSystem.writeFileString(path.join(cliDir, "agy.CMD"), "@echo off\r\n");
+    yield* fileSystem.writeFileString(path.join(ideDir, "antigravity-ide.CMD"), "@echo off\r\n");
+
+    const discover = (pathValue: string) =>
+      Effect.gen(function* () {
+        const launcher = yield* ExternalLauncher.ExternalLauncher;
+        return yield* launcher.resolveAvailableEditors();
+      }).pipe(
+        Effect.provide(
+          testLayer({
+            platform: "win32",
+            env: { PATH: pathValue, PATHEXT: ".COM;.EXE;.BAT;.CMD" },
+          }),
+        ),
+      );
+
+    assert.equal((yield* discover(cliDir)).includes("antigravity"), false);
+    assert.equal((yield* discover(`${cliDir};${ideDir}`)).includes("antigravity"), true);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
 it.effect("memoizes editor discovery and refreshes after the cache window", () => {
   let statCalls = 0;
   const fileInfo = { type: "File" } as FileSystem.File.Info;
