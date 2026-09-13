@@ -159,6 +159,72 @@ it.effect("launches an installed editor with platform-safe arguments", () =>
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
+// Reproduces #5078: the standalone Antigravity CLI owns `agy`, so it is not
+// an IDE, and a Zed install without its PATH shim still has the CLI inside
+// the app bundle.
+it.effect.skipIf(windowsHost)(
+  "finds Zed through its app bundle and ignores the standalone agy CLI on macOS",
+  () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const binDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-editors-" });
+      const homeDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-mac-home-" });
+      const zedCli = path.join(homeDir, "Applications", "Zed.app", "Contents", "MacOS", "cli");
+      yield* fileSystem.makeDirectory(path.dirname(zedCli), { recursive: true });
+      for (const file of [path.join(binDir, "agy"), zedCli]) {
+        yield* fileSystem.writeFileString(file, "#!/bin/sh\n");
+        yield* fileSystem.chmod(file, 0o755);
+      }
+
+      const editors = yield* Effect.gen(function* () {
+        const launcher = yield* ExternalLauncher.ExternalLauncher;
+        return yield* launcher.resolveAvailableEditors();
+      }).pipe(
+        Effect.provide(testLayer({ platform: "darwin", env: { PATH: binDir, HOME: homeDir } })),
+      );
+
+      assert.equal(editors.includes("zed"), true);
+      assert.equal(editors.includes("antigravity"), false);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect.skipIf(windowsHost)(
+  "launches the bundled Zed CLI with the file position when no shim is on PATH",
+  () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const binDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-editors-" });
+      const homeDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-mac-home-" });
+      const zedCli = path.join(homeDir, "Applications", "Zed.app", "Contents", "MacOS", "cli");
+      yield* fileSystem.makeDirectory(path.dirname(zedCli), { recursive: true });
+      yield* fileSystem.writeFileString(zedCli, "#!/bin/sh\n");
+      yield* fileSystem.chmod(zedCli, 0o755);
+
+      let spawned: ChildProcess.StandardCommand | undefined;
+      yield* Effect.gen(function* () {
+        const launcher = yield* ExternalLauncher.ExternalLauncher;
+        yield* launcher.launchEditor({ editor: "zed", cwd: "/tmp/workspace/src/index.ts:12:4" });
+      }).pipe(
+        Effect.provide(
+          testLayer({
+            platform: "darwin",
+            env: { PATH: binDir, HOME: homeDir },
+            onSpawn: (command) => {
+              spawned = command;
+            },
+          }),
+        ),
+      );
+
+      assert.ok(spawned);
+      assert.equal(spawned.command, zedCli);
+      assert.deepEqual(spawned.args, ["/tmp/workspace/src/index.ts:12:4"]);
+      assert.equal(spawned.options.detached, true);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
 for (const platform of ["darwin", "linux"] as const) {
   it.effect.skipIf(windowsHost)(`launches Cursor in classic IDE mode on ${platform}`, () =>
     Effect.gen(function* () {
