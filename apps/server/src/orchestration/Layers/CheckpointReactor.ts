@@ -755,10 +755,16 @@ const make = Effect.gen(function* () {
         return;
       }
 
+      // Only touch the paths this thread changed since the target turn. A
+      // shared checkout may hold work from other threads and the user.
+      const latestCheckpointRef = thread.checkpoints.find(
+        (checkpoint) => checkpoint.checkpointTurnCount === currentTurnCount,
+      )?.checkpointRef;
       const restored = yield* checkpointStore.restoreCheckpoint({
         cwd: checkpointCwd,
         checkpointRef: targetCheckpointRef,
         fallbackToHead: event.payload.turnCount === 0,
+        ...(latestCheckpointRef === undefined ? {} : { latestCheckpointRef }),
       });
       if (!restored) {
         yield* appendRevertFailureActivity({
