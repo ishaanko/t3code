@@ -342,14 +342,26 @@ export class GitVcsDriver extends Context.Service<
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const GIT_CHECK_IGNORE_MAX_STDIN_BYTES = 256 * 1024;
 const CHECKPOINT_DIFF_MAX_OUTPUT_BYTES = 10_000_000;
-// Keeps each git invocation well under the Windows command-line limit.
-const CHECKPOINT_PATHSPEC_CHUNK_SIZE = 100;
+// Keeps each git invocation well under the 32,767-character Windows
+// command-line limit, with room for the executable and fixed arguments.
+const CHECKPOINT_PATHSPEC_CHUNK_CHARS = 16_000;
 
 function chunkPathspecs(paths: ReadonlyArray<string>): ReadonlyArray<ReadonlyArray<string>> {
   const chunks: Array<ReadonlyArray<string>> = [];
-  for (let index = 0; index < paths.length; index += CHECKPOINT_PATHSPEC_CHUNK_SIZE) {
-    chunks.push(paths.slice(index, index + CHECKPOINT_PATHSPEC_CHUNK_SIZE));
+  let chunk: Array<string> = [];
+  let chunkChars = 0;
+  for (const path of paths) {
+    // Count the separator and quoting around each argument.
+    const chars = path.length + 3;
+    if (chunk.length > 0 && chunkChars + chars > CHECKPOINT_PATHSPEC_CHUNK_CHARS) {
+      chunks.push(chunk);
+      chunk = [];
+      chunkChars = 0;
+    }
+    chunk.push(path);
+    chunkChars += chars;
   }
+  if (chunk.length > 0) chunks.push(chunk);
   return chunks;
 }
 const WORKSPACE_GIT_HARDENED_CONFIG_ARGS = [
