@@ -24,6 +24,7 @@ import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
 import { parseTurnDiffFilesFromNumstat } from "../../checkpointing/Diffs.ts";
 import {
   checkpointRefForThreadTurn,
+  isCapturedCheckpointRef,
   resolveThreadWorkspaceCwd,
 } from "../../checkpointing/Utils.ts";
 import * as CheckpointStore from "../../checkpointing/CheckpointStore.ts";
@@ -756,10 +757,13 @@ const make = Effect.gen(function* () {
       }
 
       // Only touch the paths this thread changed since the target turn. A
-      // shared checkout may hold work from other threads and the user.
-      const latestCheckpointRef = thread.checkpoints.find(
-        (checkpoint) => checkpoint.checkpointTurnCount === currentTurnCount,
-      )?.checkpointRef;
+      // shared checkout may hold work from other threads and the user. A
+      // mid-turn placeholder has no git ref, so scope by the newest capture.
+      const latestCheckpointRef = thread.checkpoints
+        .filter((checkpoint) => isCapturedCheckpointRef(checkpoint.checkpointRef))
+        .toSorted(
+          (left, right) => right.checkpointTurnCount - left.checkpointTurnCount,
+        )[0]?.checkpointRef;
       const restored = yield* checkpointStore.restoreCheckpoint({
         cwd: checkpointCwd,
         checkpointRef: targetCheckpointRef,
