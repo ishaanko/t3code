@@ -610,7 +610,7 @@ export const PullRequestsToolkitRegistrationLive = McpServer.toolkit(PullRequest
   Layer.provide(PullRequestsToolkitHandlersLive),
 );
 
-export const WorktreeToolkitRegistrationLive = McpServer.toolkit(WorktreeToolkit).pipe(
+const WorktreeToolkitRegistrationLive = McpServer.toolkit(WorktreeToolkit).pipe(
   Layer.provide(WorktreeToolkitHandlersLive),
 );
 
