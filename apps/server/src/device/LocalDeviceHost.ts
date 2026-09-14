@@ -124,13 +124,14 @@ const platformReason = Effect.fn("LocalDeviceHost.platformReason")(function* (
     if (simctl.success.timedOut) {
       return "xcrun simctl did not respond. Check that Xcode is not still installing components, then check again.";
     }
-    if (simctl.success.code !== 0) {
+    if (simctl.success.code === 0) return null;
+    if (simctl.success.stderr.includes('unable to find utility "simctl"')) {
       return (
         "xcrun cannot find simctl because the developer directory points at Command Line Tools, not Xcode.app. " +
-        "Run `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` and check again."
+        "Run `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`, adjusting the path if Xcode lives elsewhere, and check again."
       );
     }
-    return null;
+    return `xcrun simctl failed: ${simctl.success.stderr.trim() || `exit code ${simctl.success.code}`}`;
   }
   const sdk = yield* androidSdk;
   if (!sdk.root)

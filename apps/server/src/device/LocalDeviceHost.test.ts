@@ -116,6 +116,16 @@ describe("iOS Simulator availability", () => {
     }),
   );
 
+  it.effect("passes through other simctl failures instead of blaming xcode-select", () =>
+    Effect.gen(function* () {
+      const reason = yield* diagnoseIos(
+        Effect.succeed(exited(69, "You have not agreed to the Xcode license agreements.")),
+      );
+      expect(reason).toContain("Xcode license");
+      expect(reason).not.toContain("xcode-select");
+    }),
+  );
+
   it.effect("does not blame xcode-select when the probe times out", () =>
     Effect.gen(function* () {
       const reason = yield* diagnoseIos(Effect.succeed(exited(0, "", true)));
