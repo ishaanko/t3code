@@ -19,7 +19,6 @@ import {
 import { waitForHttpReady } from "@t3tools/shared/httpReadiness";
 import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as NetService from "@t3tools/shared/Net";
-import { isCommandAvailable } from "@t3tools/shared/shell";
 import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -88,13 +87,42 @@ interface RunningHost {
   readonly helpers: DeviceHost.DeviceHostReady["helpers"];
 }
 
+/**
+ * Explains why a platform cannot run here, or returns null when it can.
+ *
+ * The iOS probe runs `xcrun simctl help` rather than checking that `xcrun`
+ * exists. Command Line Tools ship an `xcrun` that cannot find `simctl` when
+ * `xcode-select` points at them instead of Xcode.app, and that is the state a
+ * user lands in after installing the tools before Xcode or after an Xcode
+ * update resets the developer directory. The SSH host script runs the same
+ * probe on remote Macs.
+ */
 const platformReason = Effect.fn("LocalDeviceHost.platformReason")(function* (
   platform: DevicePlatform,
-): Effect.fn.Return<string | null, never, FileSystem.FileSystem | Path.Path> {
+): Effect.fn.Return<
+  string | null,
+  never,
+  FileSystem.FileSystem | Path.Path | ProcessRunner.ProcessRunner
+> {
   const hostPlatform = yield* HostProcessPlatform;
   if (platform === "ios") {
     if (hostPlatform !== "darwin") return "iOS Simulators need macOS with Xcode.";
-    if (!(yield* isCommandAvailable("xcrun"))) return "Xcode command line tools were not found.";
+    const runner = yield* ProcessRunner.ProcessRunner;
+    const simctl = yield* runner
+      .run({
+        command: "xcrun",
+        args: ["simctl", "help"],
+        timeout: Duration.seconds(15),
+        timeoutBehavior: "timedOutResult",
+      })
+      .pipe(Effect.option);
+    if (simctl._tag === "None") return "Xcode command line tools were not found.";
+    if (simctl.value.code !== 0) {
+      return (
+        "xcrun cannot find simctl because the developer directory points at Command Line Tools, not Xcode.app. " +
+        "Run `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` and check again."
+      );
+    }
     return null;
   }
   const sdk = yield* androidSdk;
@@ -203,6 +231,7 @@ export const make = Effect.fn("LocalDeviceHost.make")(function* () {
     const reason = yield* platformReason(platform).pipe(
       Effect.provideService(FileSystem.FileSystem, fs),
       Effect.provideService(Path.Path, path),
+      Effect.provideService(ProcessRunner.ProcessRunner, runner),
     );
     return reason === null ? { platform, available: true } : { platform, available: false, reason };
   });

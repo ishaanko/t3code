@@ -32,12 +32,15 @@ export function platformSetupStatus(state: DeviceServiceState, platform: DeviceP
     state.hostStatus === "ready" &&
     !state.devices.some((device) => device.platform === platform)
   ) {
+    // The hub lists nothing when `simctl` or the emulator fails at runtime, and
+    // it reports why in the host detail. Show that over the generic guess.
     return {
       ready: false,
       message:
-        platform === "ios"
+        state.hostStatusDetail ??
+        (platform === "ios"
           ? "Xcode is installed, but no iOS Simulator is available. Install a runtime in Xcode Settings → Components."
-          : "The Android SDK is installed, but no virtual device exists. Create one in Android Studio → Device Manager.",
+          : "The Android SDK is installed, but no virtual device exists. Create one in Android Studio → Device Manager."),
     };
   }
   return {

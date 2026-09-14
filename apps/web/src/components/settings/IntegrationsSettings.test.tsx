@@ -137,6 +137,14 @@ describe("device setup guidance", () => {
     expect(platformSetupStatus(deviceState(), "android").message).toContain("Device Manager");
   });
 
+  it("shows the hub's own error instead of guessing that no simulator exists", () => {
+    const state = deviceState({
+      hostStatusDetail: 'xcrun: error: unable to find utility "simctl"',
+    });
+    expect(platformSetupStatus(state, "ios").message).toContain("simctl");
+    expect(platformSetupStatus(state, "ios").ready).toBe(false);
+  });
+
   it("preserves a specific missing-tool explanation from the server", () => {
     const state = deviceState({
       hosts: [
