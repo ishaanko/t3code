@@ -71,11 +71,11 @@ describe("Android SDK availability", () => {
   );
 });
 
-const exited = (code: number, stderr = ""): ProcessRunner.ProcessRunOutput => ({
+const exited = (code: number, stderr = "", timedOut = false): ProcessRunner.ProcessRunOutput => ({
   stdout: "",
   stderr,
   code: ChildProcessSpawner.ExitCode(code),
-  timedOut: false,
+  timedOut,
   stdoutTruncated: false,
   stderrTruncated: false,
   stdoutInvalidUtf8: false,
@@ -113,6 +113,30 @@ describe("iOS Simulator availability", () => {
         Effect.succeed(exited(72, 'xcrun: error: unable to find utility "simctl"')),
       );
       expect(reason).toContain("xcode-select -s /Applications/Xcode.app/Contents/Developer");
+    }),
+  );
+
+  it.effect("does not blame xcode-select when the probe times out", () =>
+    Effect.gen(function* () {
+      const reason = yield* diagnoseIos(Effect.succeed(exited(0, "", true)));
+      expect(reason).toContain("did not respond");
+      expect(reason).not.toContain("xcode-select");
+    }),
+  );
+
+  it.effect("surfaces other runner failures instead of claiming tools are missing", () =>
+    Effect.gen(function* () {
+      const reason = yield* diagnoseIos(
+        Effect.fail(
+          new ProcessRunner.ProcessReadError({
+            command: "xcrun",
+            argumentCount: 2,
+            stream: "stdout",
+            cause: new Error("EIO"),
+          }),
+        ),
+      );
+      expect(reason).toContain("Could not run xcrun simctl");
     }),
   );
 

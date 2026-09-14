@@ -108,16 +108,23 @@ const platformReason = Effect.fn("LocalDeviceHost.platformReason")(function* (
   if (platform === "ios") {
     if (hostPlatform !== "darwin") return "iOS Simulators need macOS with Xcode.";
     const runner = yield* ProcessRunner.ProcessRunner;
-    const simctl = yield* runner
-      .run({
+    const simctl = yield* Effect.result(
+      runner.run({
         command: "xcrun",
         args: ["simctl", "help"],
         timeout: Duration.seconds(15),
         timeoutBehavior: "timedOutResult",
-      })
-      .pipe(Effect.option);
-    if (simctl._tag === "None") return "Xcode command line tools were not found.";
-    if (simctl.value.code !== 0) {
+      }),
+    );
+    if (simctl._tag === "Failure") {
+      return simctl.failure._tag === "ProcessSpawnError"
+        ? "Xcode command line tools were not found."
+        : `Could not run xcrun simctl: ${simctl.failure.message}`;
+    }
+    if (simctl.success.timedOut) {
+      return "xcrun simctl did not respond. Check that Xcode is not still installing components, then check again.";
+    }
+    if (simctl.success.code !== 0) {
       return (
         "xcrun cannot find simctl because the developer directory points at Command Line Tools, not Xcode.app. " +
         "Run `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` and check again."

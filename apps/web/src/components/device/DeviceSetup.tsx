@@ -32,15 +32,12 @@ export function platformSetupStatus(state: DeviceServiceState, platform: DeviceP
     state.hostStatus === "ready" &&
     !state.devices.some((device) => device.platform === platform)
   ) {
-    // The hub lists nothing when `simctl` or the emulator fails at runtime, and
-    // it reports why in the host detail. Show that over the generic guess.
     return {
       ready: false,
       message:
-        state.hostStatusDetail ??
-        (platform === "ios"
+        platform === "ios"
           ? "Xcode is installed, but no iOS Simulator is available. Install a runtime in Xcode Settings → Components."
-          : "The Android SDK is installed, but no virtual device exists. Create one in Android Studio → Device Manager."),
+          : "The Android SDK is installed, but no virtual device exists. Create one in Android Studio → Device Manager.",
     };
   }
   return {
@@ -232,6 +229,7 @@ function DevicePlatformSetup(props: {
     <div className="space-y-3">
       <PlatformStatus platform="iOS" status={platformSetupStatus(props.state, "ios")} />
       <PlatformStatus platform="Android" status={platformSetupStatus(props.state, "android")} />
+      <DeviceHostDetail state={props.state} />
       <p className="text-xs text-muted-foreground">
         You can use either platform. Fixing a missing platform does not block the other one.
       </p>
@@ -240,6 +238,20 @@ function DevicePlatformSetup(props: {
         {props.checking ? "Checking…" : "Check again"}
       </Button>
     </div>
+  );
+}
+
+/**
+ * The hub's own listing errors, such as `xcrun simctl` failing at runtime. It
+ * is one host-wide string, so it renders once below both platforms rather
+ * than replacing either platform's guidance.
+ */
+export function DeviceHostDetail(props: { readonly state: DeviceServiceState }) {
+  if (props.state.hostStatus !== "ready" || !props.state.hostStatusDetail) return null;
+  return (
+    <p role="status" className="whitespace-pre-line text-xs text-muted-foreground">
+      {props.state.hostStatusDetail}
+    </p>
   );
 }
 
