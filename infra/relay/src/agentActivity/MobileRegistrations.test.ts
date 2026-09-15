@@ -67,6 +67,7 @@ function makeLiveActivities(
   return {
     register: () => Effect.void,
     listTargets: () => Effect.succeed([]),
+    listIdleArmedTargets: () => Effect.succeed([]),
     markDelivery: () => Effect.void,
     markStartQueued: () => Effect.void,
     clearStartQueued: () => Effect.void,
