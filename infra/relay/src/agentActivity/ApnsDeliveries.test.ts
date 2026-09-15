@@ -230,6 +230,7 @@ function makeLayer(input: {
         Layer.succeed(LiveActivities.LiveActivities, {
           register: () => Effect.void,
           listTargets: () => Effect.succeed(input.currentTargets ?? [target]),
+          listIdleArmedTargets: () => Effect.succeed([]),
           markStartQueued: (queued) =>
             Effect.sync(() => {
               input.queuedStarts?.push(queued);
