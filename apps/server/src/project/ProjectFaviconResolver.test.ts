@@ -425,6 +425,24 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
       }),
     );
 
+    it.effect("returns a found favicon without waiting for lower-ranked probes", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "favicon.svg", "<svg>root</svg>");
+        const stuckPath = path.join(cwd, "favicon.ico");
+        const resolver = yield* makeResolverWithFileSystem(
+          FileSystem.FileSystem.of({
+            ...fileSystem,
+            stat: (filePath) => (filePath === stuckPath ? Effect.never : fileSystem.stat(filePath)),
+          }),
+        );
+
+        expect(yield* resolver.resolvePath(cwd)).toBe(path.join(cwd, "favicon.svg"));
+      }),
+    );
+
     it.effect("ignores a failing candidate that ranks below a found favicon", () =>
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;

@@ -11,6 +11,7 @@ import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -248,26 +249,25 @@ export const make = Effect.gen(function* () {
     return yield* findExistingFile(projectCwd, resolveIconHref(href), "workspace");
   });
 
-  // Runs every probe at once and returns the first hit in list order. A miss
+  // Starts every probe at once and returns the first hit in list order. A miss
   // costs one round of filesystem latency instead of one per probe, which
-  // matters when the disk is slow. Results are read in order, so a failure
-  // surfaces only when no earlier probe found a file, as in a sequential walk.
+  // matters when the disk is slow. Fibers are joined in order, so a hit returns
+  // without waiting for lower-ranked probes (the scope interrupts them), and a
+  // failure surfaces only when no earlier probe found a file.
   const firstInOrder = <A>(
     items: ReadonlyArray<A>,
     probe: (item: A) => Effect.Effect<string | null, ProjectFaviconResolutionError>,
   ) =>
     Effect.gen(function* () {
-      const exits = yield* Effect.forEach(items, (item) => Effect.exit(probe(item)), {
-        concurrency: "unbounded",
-      });
-      for (const exit of exits) {
-        const found = yield* exit;
+      const fibers = yield* Effect.forEach(items, (item) => Effect.forkScoped(probe(item)));
+      for (const fiber of fibers) {
+        const found = yield* Fiber.join(fiber);
         if (found) {
           return found;
         }
       }
       return null;
-    });
+    }).pipe(Effect.scoped);
 
   const resolvePathUncached = Effect.fn("ProjectFaviconResolver.resolvePathUncached")(function* (
     cwd: string,
