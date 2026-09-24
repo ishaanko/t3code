@@ -1636,6 +1636,9 @@ export default function ChatView(props: ChatViewProps) {
   );
   const setComposerDraftReviewComments = useComposerDraftStore((store) => store.setReviewComments);
   const setComposerDraftModelSelection = useComposerDraftStore((store) => store.setModelSelection);
+  const clearComposerDraftModelSelection = useComposerDraftStore(
+    (store) => store.clearModelSelection,
+  );
   const setComposerDraftRuntimeMode = useComposerDraftStore((store) => store.setRuntimeMode);
   const setComposerDraftInteractionMode = useComposerDraftStore(
     (store) => store.setInteractionMode,
@@ -7201,6 +7204,7 @@ export default function ChatView(props: ChatViewProps) {
         }
       } else {
         clearUsageLimitsFor(routeThreadKey);
+        clearComposerDraftModelSelection(scopeThreadRef(environmentId, threadId));
       }
     } finally {
       sendInFlightRef.current = false;
@@ -8469,6 +8473,13 @@ export default function ChatView(props: ChatViewProps) {
         // snapshot is stale. Uploads may have outlasted a navigation, so only
         // the sending thread's panel clears.
         clearUsageLimitsFor(routeThreadKey);
+        // The server thread now holds this model. Forgetting the draft's copy
+        // lets a switch made on another client show here instead of being
+        // reverted by this composer's next send. New threads drop it at
+        // promotion instead, once the server thread has arrived.
+        if (isServerThread) {
+          clearComposerDraftModelSelection(scopeThreadRef(environmentId, threadIdForSend));
+        }
         if (turnUsesAttachmentUploads) {
           releaseDraftAttachments(composerAttachmentsSnapshot);
         }
@@ -9074,6 +9085,7 @@ export default function ChatView(props: ChatViewProps) {
 
       if (failure === null) {
         clearUsageLimitsFor(routeThreadKey);
+        clearComposerDraftModelSelection(scopeThreadRef(environmentId, threadIdForSend));
         acknowledgeActiveThreadWoke();
         sendInFlightRef.current = false;
         return true;
@@ -9098,6 +9110,7 @@ export default function ChatView(props: ChatViewProps) {
       activeProposedPlan,
       acknowledgeActiveThreadWoke,
       beginLocalDispatch,
+      clearComposerDraftModelSelection,
       isConnecting,
       isSendBusy,
       isServerThread,

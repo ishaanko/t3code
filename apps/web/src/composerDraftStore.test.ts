@@ -1629,6 +1629,22 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.prompt).toBe("typed during setup");
   });
 
+  it("leaves the model to the server thread when a draft is promoted", () => {
+    const store = useComposerDraftStore.getState();
+    store.setProjectDraftThreadId(projectRef, draftId, { threadId });
+    store.setModelSelection(draftId, modelSelection(CODEX_DRIVER, "gpt-5.4"), {
+      explicit: true,
+    });
+    store.setPrompt(draftId, "typed during setup");
+
+    finalizePromotedDraftThreadByRef(scopeThreadRef(TEST_ENVIRONMENT_ID, threadId));
+
+    const promoted = draftFor(threadId, TEST_ENVIRONMENT_ID);
+    expect(promoted?.prompt).toBe("typed during setup");
+    expect(promoted?.modelSelectionByProvider).toEqual({});
+    expect(promoted?.activeProvider).toBeNull();
+  });
+
   it("cleans up a completed background draft without replacing the active draft", () => {
     const store = useComposerDraftStore.getState();
     const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
@@ -1920,6 +1936,32 @@ describe("composerDraftStore modelSelection", () => {
     expect(
       draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider[CODEX_INSTANCE],
     ).toEqual(modelSelection(CODEX_DRIVER, "gpt-5.4"));
+  });
+
+  it("clearModelSelection hands the model back to the thread and keeps typed text", () => {
+    const store = useComposerDraftStore.getState();
+    store.setModelSelection(threadRef, modelSelection(CODEX_DRIVER, "gpt-5.4"), {
+      explicit: true,
+    });
+    store.setPrompt(threadRef, "next message");
+
+    store.clearModelSelection(threadRef);
+
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)).toMatchObject({
+      prompt: "next message",
+      modelSelectionByProvider: {},
+      activeProvider: null,
+    });
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionExplicit).toBeUndefined();
+  });
+
+  it("clearModelSelection removes a draft that only held a model", () => {
+    const store = useComposerDraftStore.getState();
+    store.setModelSelection(threadRef, modelSelection(CODEX_DRIVER, "gpt-5.4"));
+
+    store.clearModelSelection(threadRef);
+
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)).toBeUndefined();
   });
 
   it("marks picker writes explicit and seeding writes non-explicit", () => {

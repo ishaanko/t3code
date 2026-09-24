@@ -586,6 +586,11 @@ interface ComposerDraftStoreState {
       replaceOptions?: boolean;
     },
   ) => void;
+  /**
+   * Forget the draft's model pick once the server thread has persisted it,
+   * so the composer follows the thread's model from then on.
+   */
+  clearModelSelection: (threadRef: ComposerThreadTarget) => void;
   /** Replace the model options for one or more providers in the draft. */
   setModelOptions: (
     threadRef: ComposerThreadTarget,
@@ -906,6 +911,16 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.runtimeMode === null &&
     draft.interactionMode === null
   );
+}
+
+/**
+ * Drops the draft's model override so the composer reads the server thread's
+ * `modelSelection`. Used once that thread holds the selection, so a model
+ * changed on another client is not shadowed by this device's old pick.
+ */
+function withoutModelSelection(draft: ComposerThreadDraftState): ComposerThreadDraftState {
+  const { modelSelectionExplicit: _modelSelectionExplicit, ...retained } = draft;
+  return { ...retained, modelSelectionByProvider: {}, activeProvider: null };
 }
 
 function normalizeProviderDriverKind(value: unknown): ProviderDriverKind | null {
@@ -1622,7 +1637,11 @@ function removeDraftThreadReferences(
     state.draftThreadsByThreadKey;
   const { [threadKey]: removedComposerDraft, ...restDraftsByThreadKey } = state.draftsByThreadKey;
   if (composerDestination && removedComposerDraft) {
-    restDraftsByThreadKey[composerTargetKey(composerDestination)] = removedComposerDraft;
+    // The server thread was created with this selection and owns it now.
+    const promotedDraft = withoutModelSelection(removedComposerDraft);
+    if (!shouldRemoveDraft(promotedDraft)) {
+      restDraftsByThreadKey[composerTargetKey(composerDestination)] = promotedDraft;
+    }
   } else {
     revokeDraftThreadPreviewUrls(removedComposerDraft);
   }
@@ -3082,6 +3101,30 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               activeProvider: nextActiveProvider,
               ...(opts?.explicit === true ? { modelSelectionExplicit: true as const } : {}),
             };
+            const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
+            if (shouldRemoveDraft(nextDraft)) {
+              delete nextDraftsByThreadKey[threadKey];
+            } else {
+              nextDraftsByThreadKey[threadKey] = nextDraft;
+            }
+            return { draftsByThreadKey: nextDraftsByThreadKey };
+          });
+        },
+        clearModelSelection: (threadRef) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+          if (threadKey.length === 0) {
+            return;
+          }
+          set((state) => {
+            const current = state.draftsByThreadKey[threadKey];
+            if (
+              !current ||
+              (current.activeProvider === null &&
+                Object.keys(current.modelSelectionByProvider).length === 0)
+            ) {
+              return state;
+            }
+            const nextDraft = withoutModelSelection(current);
             const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
             if (shouldRemoveDraft(nextDraft)) {
               delete nextDraftsByThreadKey[threadKey];
