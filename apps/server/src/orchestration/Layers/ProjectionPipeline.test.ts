@@ -1515,6 +1515,54 @@ it.layer(
   );
 });
 
+it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-cleanup-unreadable-")))(
+  "OrchestrationProjectionPipeline",
+  (it) => {
+    it.effect("starts when the attachment cleanup replay hits an unreadable event", () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const projectionState = yield* ProjectionStateRepository;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const now = "2026-01-01T00:00:00.000Z";
+
+        yield* projectionPipeline.bootstrap;
+        // Runtime projection advances the regular projectors but not the cleanup cursor.
+        const event = yield* eventStore.append({
+          type: "project.created",
+          eventId: EventId.make("evt-cleanup-unreadable"),
+          aggregateKind: "project",
+          aggregateId: ProjectId.make("project-cleanup-unreadable"),
+          occurredAt: now,
+          commandId: CommandId.make("cmd-cleanup-unreadable"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-cleanup-unreadable"),
+          metadata: {},
+          payload: {
+            projectId: ProjectId.make("project-cleanup-unreadable"),
+            title: "Cleanup unreadable",
+            workspaceRoot: "/tmp/project-cleanup-unreadable",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+        yield* projectionPipeline.projectEvent(event);
+        const cursorsBefore = yield* projectionState.listAll();
+        // Matches a row salvaged from a corrupted page by sqlite3 `.recover`.
+        yield* sql`
+        UPDATE orchestration_events SET payload_json = '', metadata_json = ''
+        WHERE sequence = ${event.sequence}
+      `;
+
+        yield* projectionPipeline.bootstrap;
+        assert.deepEqual(yield* projectionState.listAll(), cursorsBefore);
+      }),
+    );
+  },
+);
+
 it.layer(
   Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-attachments-overwrite-")),
 )("OrchestrationProjectionPipeline", (it) => {

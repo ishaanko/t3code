@@ -2153,7 +2153,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       // All message and activity references are current before any files are removed.
       const pendingCleanup = new Map<string, OrchestrationEvent>();
       let lastEvent: OrchestrationEvent | undefined;
-      yield* Stream.runForEach(
+      const scanned = yield* Stream.runForEach(
         eventStore.readFromSequence(cleanupStart, Number.MAX_SAFE_INTEGER),
         (event) =>
           Effect.sync(() => {
@@ -2162,7 +2162,18 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               pendingCleanup.set(`${event.type}:${event.payload.threadId}`, event);
             }
           }),
+      ).pipe(
+        Effect.as(true),
+        // The cleanup cursor trails the other projectors by every event since the previous
+        // launch, so one damaged row there must not stop the server. Cleanup retries next start.
+        Effect.catch((cause) =>
+          Effect.logWarning("skipped attachment cleanup: an event after its cursor is unreadable", {
+            sequenceExclusive: cleanupStart,
+            cause,
+          }).pipe(Effect.as(false)),
+        ),
       );
+      if (!scanned) return;
       for (const event of pendingCleanup.values()) {
         if (event.type !== "thread.reverted" && event.type !== "thread.deleted") continue;
         const threadId = event.payload.threadId;
