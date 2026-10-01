@@ -18,6 +18,10 @@ import * as NetService from "@t3tools/shared/Net";
 import * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
 
+const noRunner: ProcessRunner.ProcessRunner["Service"] = {
+  run: () => Effect.die(new Error("Android diagnostics must not run commands")),
+};
+
 const diagnose = (
   files: ReadonlyArray<string>,
   environment: NodeJS.ProcessEnv,
@@ -26,6 +30,7 @@ const diagnose = (
   LocalDeviceHost.__testing.platformReason("android").pipe(
     Effect.provideService(HostProcessEnvironment, environment),
     Effect.provideService(HostProcessPlatform, platform),
+    Effect.provideService(ProcessRunner.ProcessRunner, noRunner),
     Effect.provideService(
       FileSystem.FileSystem,
       FileSystem.makeNoop({
@@ -34,6 +39,92 @@ const diagnose = (
     ),
     Effect.provide(platform === "win32" ? NodePath.layerWin32 : NodePath.layerPosix),
   );
+
+const exited = (code: number, stderr = ""): ProcessRunner.ProcessRunOutput => ({
+  stdout: "",
+  stderr,
+  code: ChildProcessSpawner.ExitCode(code),
+  timedOut: false,
+  stdoutTruncated: false,
+  stderrTruncated: false,
+  stdoutInvalidUtf8: false,
+  stderrInvalidUtf8: false,
+});
+
+/** Runs the iOS check on macOS with a fake `xcrun simctl help` outcome. */
+const diagnoseIos = (
+  simctl: Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>,
+) =>
+  LocalDeviceHost.__testing.platformReason("ios").pipe(
+    Effect.provideService(HostProcessEnvironment, {}),
+    Effect.provideService(HostProcessPlatform, "darwin"),
+    Effect.provideService(ProcessRunner.ProcessRunner, {
+      run: (input) => {
+        expect([input.command, ...(input.args ?? [])]).toEqual(["xcrun", "simctl", "help"]);
+        return simctl;
+      },
+    }),
+    Effect.provideService(FileSystem.FileSystem, FileSystem.makeNoop({})),
+    Effect.provide(NodePath.layerPosix),
+  );
+
+describe("iOS Simulator availability", () => {
+  it.effect("is available when xcrun can run simctl", () =>
+    Effect.gen(function* () {
+      expect(yield* diagnoseIos(Effect.succeed(exited(0)))).toBeNull();
+    }),
+  );
+
+  it.effect("tells the user to point xcode-select at Xcode.app when simctl is missing", () =>
+    Effect.gen(function* () {
+      const reason = yield* diagnoseIos(
+        Effect.succeed(exited(72, 'xcrun: error: unable to find utility "simctl"')),
+      );
+      expect(reason).toContain("sudo xcode-select -s /Applications/Xcode.app/Contents/Developer");
+    }),
+  );
+
+  it.effect("passes through other simctl failures instead of blaming xcode-select", () =>
+    Effect.gen(function* () {
+      const reason = yield* diagnoseIos(
+        Effect.succeed(exited(69, "You have not agreed to the Xcode license agreements.")),
+      );
+      expect(reason).toBe(
+        "xcrun simctl failed: You have not agreed to the Xcode license agreements.",
+      );
+    }),
+  );
+
+  it.effect("reports a hung probe instead of claiming tools are missing", () =>
+    Effect.gen(function* () {
+      const reason = yield* diagnoseIos(
+        Effect.fail(
+          new ProcessRunner.ProcessTimeoutError({
+            command: "xcrun",
+            argumentCount: 2,
+            timeoutMs: 15_000,
+          }),
+        ),
+      );
+      expect(reason).toMatch(/^Could not run xcrun simctl: .*timed out/);
+    }),
+  );
+
+  it.effect("reports missing command line tools when xcrun cannot be spawned", () =>
+    Effect.gen(function* () {
+      const reason = yield* diagnoseIos(
+        Effect.fail(
+          new ProcessRunner.ProcessSpawnError({
+            command: "xcrun",
+            argumentCount: 2,
+            cause: new Error("ENOENT"),
+          }),
+        ),
+      );
+      expect(reason).toBe("Xcode command line tools were not found.");
+    }),
+  );
+});
 
 describe("Android SDK availability", () => {
   it.effect("explains that adb alone is insufficient to launch an emulator", () =>

@@ -25,7 +25,6 @@ import {
   type NodeRuntimeUnavailableError,
 } from "@t3tools/shared/nodeRuntime";
 import * as NetService from "@t3tools/shared/Net";
-import { isCommandAvailable } from "@t3tools/shared/shell";
 import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -99,14 +98,38 @@ interface RunningHost {
   readonly helpers: DeviceHost.DeviceHostReady["helpers"];
 }
 
+/**
+ * Explains why a platform cannot run here, or returns null when it can.
+ *
+ * iOS runs `xcrun simctl help` instead of checking that `xcrun` exists: when
+ * `xcode-select` points at Command Line Tools, `xcrun` exists but cannot find
+ * `simctl`. The SSH host script runs the same probe on remote Macs.
+ */
 const platformReason = Effect.fn("LocalDeviceHost.platformReason")(function* (
   platform: DevicePlatform,
-): Effect.fn.Return<string | null, never, FileSystem.FileSystem | Path.Path> {
+): Effect.fn.Return<
+  string | null,
+  never,
+  FileSystem.FileSystem | Path.Path | ProcessRunner.ProcessRunner
+> {
   const hostPlatform = yield* HostProcessPlatform;
   if (platform === "ios") {
     if (hostPlatform !== "darwin") return "iOS Simulators need macOS with Xcode.";
-    if (!(yield* isCommandAvailable("xcrun"))) return "Xcode command line tools were not found.";
-    return null;
+    const runner = yield* ProcessRunner.ProcessRunner;
+    const simctl = yield* runner
+      .run({ command: "xcrun", args: ["simctl", "help"], timeout: Duration.seconds(15) })
+      .pipe(Effect.result);
+    if (simctl._tag === "Failure") {
+      return simctl.failure._tag === "ProcessSpawnError"
+        ? "Xcode command line tools were not found."
+        : `Could not run xcrun simctl: ${simctl.failure.message}`;
+    }
+    const { code, stderr } = simctl.success;
+    if (code === 0) return null;
+    if (stderr.includes('unable to find utility "simctl"')) {
+      return "xcrun cannot find simctl because xcode-select points at Command Line Tools, not Xcode.app. Run sudo xcode-select -s /Applications/Xcode.app/Contents/Developer, adjusting the path if Xcode lives elsewhere, then check again.";
+    }
+    return `xcrun simctl failed: ${stderr.trim() || `exit code ${code}`}`;
   }
   const sdk = yield* androidSdk;
   if (!sdk.root)
@@ -222,6 +245,7 @@ export const make = Effect.fn("LocalDeviceHost.make")(function* () {
     const reason = yield* platformReason(platform).pipe(
       Effect.provideService(FileSystem.FileSystem, fs),
       Effect.provideService(Path.Path, path),
+      Effect.provideService(ProcessRunner.ProcessRunner, runner),
     );
     return reason === null ? { platform, available: true } : { platform, available: false, reason };
   });
