@@ -55,6 +55,7 @@ const exited = (code: number, stderr = ""): ProcessRunner.ProcessRunOutput => ({
 /** Runs the iOS check on macOS with a fake `xcrun simctl help` outcome. */
 const diagnoseIos = (
   simctl: Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>,
+  applications: ReadonlyArray<string> = ["Xcode.app"],
 ) =>
   LocalDeviceHost.__testing.platformReason("ios").pipe(
     Effect.provideService(HostProcessEnvironment, {}),
@@ -65,7 +66,10 @@ const diagnoseIos = (
         return simctl;
       },
     }),
-    Effect.provideService(FileSystem.FileSystem, FileSystem.makeNoop({})),
+    Effect.provideService(
+      FileSystem.FileSystem,
+      FileSystem.makeNoop({ readDirectory: () => Effect.succeed([...applications]) }),
+    ),
     Effect.provide(NodePath.layerPosix),
   );
 
@@ -82,6 +86,17 @@ describe("iOS Simulator availability", () => {
         Effect.succeed(exited(72, 'xcrun: error: unable to find utility "simctl"')),
       );
       expect(reason).toContain("sudo xcode-select -s /Applications/Xcode.app/Contents/Developer");
+    }),
+  );
+
+  it.effect("asks for Xcode when only Command Line Tools are installed", () =>
+    Effect.gen(function* () {
+      const reason = yield* diagnoseIos(
+        Effect.succeed(exited(72, 'xcrun: error: unable to find utility "simctl"')),
+        ["Safari.app"],
+      );
+      expect(reason).toContain("Install Xcode");
+      expect(reason).not.toContain("xcode-select");
     }),
   );
 

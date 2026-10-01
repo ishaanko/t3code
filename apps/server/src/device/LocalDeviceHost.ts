@@ -131,7 +131,13 @@ const platformReason = Effect.fn("LocalDeviceHost.platformReason")(function* (
     const { code, stderr } = simctl.success;
     if (code === 0) return null;
     if (stderr.includes('unable to find utility "simctl"')) {
-      return "xcrun cannot find simctl because xcode-select points at Command Line Tools, not Xcode.app. Run sudo xcode-select -s /Applications/Xcode.app/Contents/Developer, adjusting the path if Xcode lives elsewhere, then check again.";
+      // Command Line Tools alone also lack simctl, and then there is no Xcode to select.
+      const applications = yield* (yield* FileSystem.FileSystem)
+        .readDirectory("/Applications")
+        .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
+      return applications.some((name) => /^Xcode.*\.app$/.test(name))
+        ? "xcrun cannot find simctl because xcode-select points at Command Line Tools, not Xcode.app. Run sudo xcode-select -s /Applications/Xcode.app/Contents/Developer, adjusting the path if Xcode lives elsewhere, then check again."
+        : "xcrun cannot find simctl because only Command Line Tools are installed. Install Xcode, then check again.";
     }
     return `xcrun simctl failed: ${stderr.trim() || `exit code ${code}`}`;
   }
