@@ -8,6 +8,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as PlatformError from "effect/PlatformError";
 import * as FileSystem from "effect/FileSystem";
 
 import * as LocalDeviceHost from "./LocalDeviceHost.ts";
@@ -110,18 +111,31 @@ describe("iOS Simulator availability", () => {
     }),
   );
 
-  it.effect("reports missing command line tools when xcrun cannot be spawned", () =>
+  const spawnFailure = (reason: "NotFound" | "PermissionDenied") =>
+    Effect.fail(
+      new ProcessRunner.ProcessSpawnError({
+        command: "xcrun",
+        argumentCount: 2,
+        cause: PlatformError.systemError({
+          _tag: reason,
+          module: "ChildProcess",
+          method: "spawn",
+          pathOrDescriptor: "xcrun",
+        }),
+      }),
+    );
+
+  it.effect("reports missing command line tools when xcrun does not exist", () =>
     Effect.gen(function* () {
-      const reason = yield* diagnoseIos(
-        Effect.fail(
-          new ProcessRunner.ProcessSpawnError({
-            command: "xcrun",
-            argumentCount: 2,
-            cause: new Error("ENOENT"),
-          }),
-        ),
-      );
+      const reason = yield* diagnoseIos(spawnFailure("NotFound"));
       expect(reason).toBe("Xcode command line tools were not found.");
+    }),
+  );
+
+  it.effect("passes through other spawn failures instead of claiming tools are missing", () =>
+    Effect.gen(function* () {
+      const reason = yield* diagnoseIos(spawnFailure("PermissionDenied"));
+      expect(reason).toMatch(/^Could not run xcrun simctl: /);
     }),
   );
 });

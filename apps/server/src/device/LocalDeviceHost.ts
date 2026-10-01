@@ -32,6 +32,7 @@ import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as PlatformError from "effect/PlatformError";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -120,9 +121,12 @@ const platformReason = Effect.fn("LocalDeviceHost.platformReason")(function* (
       .run({ command: "xcrun", args: ["simctl", "help"], timeout: Duration.seconds(15) })
       .pipe(Effect.result);
     if (simctl._tag === "Failure") {
-      return simctl.failure._tag === "ProcessSpawnError"
+      const failure = simctl.failure;
+      return failure._tag === "ProcessSpawnError" &&
+        failure.cause instanceof PlatformError.PlatformError &&
+        failure.cause.reason._tag === "NotFound"
         ? "Xcode command line tools were not found."
-        : `Could not run xcrun simctl: ${simctl.failure.message}`;
+        : `Could not run xcrun simctl: ${failure.message}`;
     }
     const { code, stderr } = simctl.success;
     if (code === 0) return null;
