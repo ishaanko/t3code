@@ -569,7 +569,7 @@ export const make = Effect.gen(function* () {
         ),
       ),
       Effect.catchCause((cause) =>
-        Effect.logWarning("live-work recheck failed; allowing queued start", { cause }).pipe(
+        Effect.logWarning("live-work recheck failed; assuming live work", { cause }).pipe(
           Effect.as(true),
         ),
       ),
@@ -764,6 +764,21 @@ export const make = Effect.gen(function* () {
         yield* attempts.completeSourceJob({
           sourceJobId: input.sourceJobId,
           apnsReason: "Stale agent activity state skipped.",
+        });
+        return staleJobResult({ deviceId: input.target.device_id, kind: input.kind });
+      }
+      // A contentless end was decided while nothing was running. Work that
+      // started since owns the card, so ending it now would strand that work.
+      // An end for a device that turned Live Activities off still goes out.
+      if (
+        input.kind === "live_activity_end" &&
+        aggregate === null &&
+        parsePreferences(currentTarget.preferences_json)?.liveActivitiesEnabled !== false &&
+        (yield* userStillHasLiveWork(input.target.user_id))
+      ) {
+        yield* attempts.completeSourceJob({
+          sourceJobId: input.sourceJobId,
+          apnsReason: "Stale APNs end job skipped.",
         });
         return staleJobResult({ deviceId: input.target.device_id, kind: input.kind });
       }
