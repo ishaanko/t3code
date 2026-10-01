@@ -458,6 +458,8 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
       (host) =>
         Effect.gen(function* () {
           const summary = yield* host.summary;
+          // The probe can be slow; device support may have been turned off meanwhile.
+          if (!(yield* readDeviceSettings).enabled) return;
           if (!cannotRunLocally(summary)) {
             yield* refresh(yield* readiness(host.id));
             return;
