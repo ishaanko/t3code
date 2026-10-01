@@ -932,12 +932,21 @@ describe("ApnsDeliveries", () => {
       }),
     });
     // Returns the recorded attempt reason for one queued end.
-    const processEnd = (currentTarget: LiveActivities.TargetRow) => {
+    const processEnd = (
+      currentTarget: LiveActivities.TargetRow,
+      activityStates?: ReadonlyArray<RelayAgentActivityState>,
+    ) => {
       const attempts: Array<DeliveryAttempts.DeliveryAttemptInput> = [];
       return ApnsDeliveries.ApnsDeliveries.pipe(
         Effect.flatMap((deliveries) => deliveries.processSignedJob(signedEnd)),
         Effect.map(() => attempts.map((attempt) => attempt.apnsReason)),
-        Effect.provide(makeLayer({ attempts, currentTargets: [currentTarget] })),
+        Effect.provide(
+          makeLayer({
+            attempts,
+            currentTargets: [currentTarget],
+            ...(activityStates ? { activityStates } : {}),
+          }),
+        ),
       );
     };
 
@@ -945,6 +954,14 @@ describe("ApnsDeliveries", () => {
     it.effect("is skipped", () =>
       Effect.gen(function* () {
         expect(yield* processEnd(target)).toEqual(["Stale APNs end job skipped."]);
+      }),
+    );
+
+    it.effect("is skipped when that work already finished inside the display window", () =>
+      Effect.gen(function* () {
+        expect(yield* processEnd(target, [{ ...state, phase: "completed" }])).toEqual([
+          "Stale APNs end job skipped.",
+        ]);
       }),
     );
 

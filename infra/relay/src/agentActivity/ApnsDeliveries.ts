@@ -24,6 +24,7 @@ import {
   sanitizeAgentActivityAggregateState,
   sanitizeApnsNotificationPayload,
 } from "./agentActivityPayloads.ts";
+import { makeAggregateState } from "./agentActivityAggregate.ts";
 import * as Apns from "./ApnsClient.ts";
 import {
   ApnsDeliveryJobLiveActivityAggregateMissing,
@@ -569,7 +570,29 @@ export const make = Effect.gen(function* () {
         ),
       ),
       Effect.catchCause((cause) =>
-        Effect.logWarning("live-work recheck failed; assuming live work", { cause }).pipe(
+        Effect.logWarning("live-work recheck failed; allowing queued start", { cause }).pipe(
+          Effect.as(true),
+        ),
+      ),
+    );
+  });
+
+  // Contentless ends are decided when the user's aggregate was empty. Work that
+  // starts after that, even work that already finished, has content to show
+  // again. Fails closed: a database hiccup keeps the card for the next sweep.
+  const userHasContentToShow = Effect.fnUntraced(function* (userId: string) {
+    const now = yield* DateTime.now;
+    return yield* activityRows.listForUser({ userId }).pipe(
+      Effect.map(
+        (activeStates) =>
+          makeAggregateState({
+            activeStates,
+            terminalState: null,
+            nowMs: now.epochMilliseconds,
+          }) !== null,
+      ),
+      Effect.catchCause((cause) =>
+        Effect.logWarning("content recheck failed; keeping the card", { cause }).pipe(
           Effect.as(true),
         ),
       ),
@@ -767,14 +790,13 @@ export const make = Effect.gen(function* () {
         });
         return staleJobResult({ deviceId: input.target.device_id, kind: input.kind });
       }
-      // A contentless end was decided while nothing was running. Work that
-      // started since owns the card, so ending it now would strand that work.
-      // An end for a device that turned Live Activities off still goes out.
+      // A contentless end must not retire a card that newer work now owns. An
+      // end for a device that turned Live Activities off still goes out.
       if (
         input.kind === "live_activity_end" &&
         aggregate === null &&
         parsePreferences(currentTarget.preferences_json)?.liveActivitiesEnabled !== false &&
-        (yield* userStillHasLiveWork(input.target.user_id))
+        (yield* userHasContentToShow(input.target.user_id))
       ) {
         yield* attempts.completeSourceJob({
           sourceJobId: input.sourceJobId,
