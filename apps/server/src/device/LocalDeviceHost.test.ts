@@ -101,6 +101,18 @@ describe("iOS Simulator availability", () => {
     }),
   );
 
+  it.effect("quotes a bundle path with spaces", () =>
+    Effect.gen(function* () {
+      const reason = yield* diagnoseIos(
+        Effect.succeed(exited(72, 'xcrun: error: unable to find utility "simctl"')),
+        ["Xcode 26.app"],
+      );
+      expect(reason).toContain(
+        'sudo xcode-select -s "/Applications/Xcode 26.app/Contents/Developer"',
+      );
+    }),
+  );
+
   it.effect("covers a missing Xcode and one outside /Applications when none is found", () =>
     Effect.gen(function* () {
       const reason = yield* diagnoseIos(
