@@ -89,14 +89,27 @@ describe("iOS Simulator availability", () => {
     }),
   );
 
-  it.effect("asks for Xcode when only Command Line Tools are installed", () =>
+  it.effect("names the Xcode bundle it finds, such as a beta", () =>
+    Effect.gen(function* () {
+      const reason = yield* diagnoseIos(
+        Effect.succeed(exited(72, 'xcrun: error: unable to find utility "simctl"')),
+        ["Safari.app", "Xcode-beta.app"],
+      );
+      expect(reason).toContain(
+        "sudo xcode-select -s /Applications/Xcode-beta.app/Contents/Developer",
+      );
+    }),
+  );
+
+  it.effect("covers a missing Xcode and one outside /Applications when none is found", () =>
     Effect.gen(function* () {
       const reason = yield* diagnoseIos(
         Effect.succeed(exited(72, 'xcrun: error: unable to find utility "simctl"')),
         ["Safari.app"],
       );
       expect(reason).toContain("Install Xcode");
-      expect(reason).not.toContain("xcode-select");
+      expect(reason).toContain("outside /Applications");
+      expect(reason).not.toContain("/Applications/Xcode");
     }),
   );
 

@@ -131,13 +131,16 @@ const platformReason = Effect.fn("LocalDeviceHost.platformReason")(function* (
     const { code, stderr } = simctl.success;
     if (code === 0) return null;
     if (stderr.includes('unable to find utility "simctl"')) {
-      // Command Line Tools alone also lack simctl, and then there is no Xcode to select.
+      // Name the Xcode bundle in /Applications when there is one, such as Xcode-beta.app.
+      // Otherwise Xcode may be missing or live elsewhere, so cover both without a path.
       const applications = yield* (yield* FileSystem.FileSystem)
         .readDirectory("/Applications")
         .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
-      return applications.some((name) => /^Xcode.*\.app$/.test(name))
-        ? "xcrun cannot find simctl because xcode-select points at Command Line Tools, not Xcode.app. Run sudo xcode-select -s /Applications/Xcode.app/Contents/Developer, adjusting the path if Xcode lives elsewhere, then check again."
-        : "xcrun cannot find simctl because only Command Line Tools are installed. Install Xcode, then check again.";
+      const xcodes = applications.filter((name) => /^Xcode.*\.app$/.test(name));
+      const xcode = xcodes.includes("Xcode.app") ? "Xcode.app" : xcodes.toSorted()[0];
+      return xcode
+        ? `xcrun cannot find simctl because xcode-select points at Command Line Tools, not ${xcode}. Run sudo xcode-select -s /Applications/${xcode}/Contents/Developer, adjusting the path if Xcode lives elsewhere, then check again.`
+        : "xcrun cannot find simctl because xcode-select points at Command Line Tools. Install Xcode, or if it is installed outside /Applications, run sudo xcode-select -s with its Contents/Developer path, then check again.";
     }
     return `xcrun simctl failed: ${stderr.trim() || `exit code ${code}`}`;
   }
