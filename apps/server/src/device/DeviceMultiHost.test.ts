@@ -135,7 +135,7 @@ it.effect("keeps hosts independent when serials collide and another host fails",
 it.effect("refreshes the reasons of a host that has no platform it can run", () =>
   Effect.gen(function* () {
     let iosReason = "xcrun cannot find simctl";
-    const host: DeviceHost["Service"] = {
+    const host: DeviceHost.DeviceHost["Service"] = {
       id: "local",
       summary: Effect.sync(() => ({
         id: "local",
@@ -152,7 +152,7 @@ it.effect("refreshes the reasons of a host that has no platform it can run", () 
       stopAgent: Effect.void,
       stop: Effect.void,
     };
-    const service = yield* makeWithHosts(new Map([["local", host]])).pipe(
+    const service = yield* DeviceService.makeWithHosts(new Map([["local", host]])).pipe(
       Effect.provideService(
         HttpClient.HttpClient,
         HttpClient.make(() => Effect.die(new Error("no hub to call"))),
@@ -162,5 +162,5 @@ it.effect("refreshes the reasons of a host that has no platform it can run", () 
     const listed = yield* service.list;
     expect(listed.hostStatus).toBe("idle");
     expect(listed.hosts[0]?.platforms[0]?.reason).toBe(iosReason);
-  }).pipe(Effect.provide(ServerSettingsService.layerTest({ enableDeviceSupport: true }))),
+  }).pipe(Effect.provide(ServerSettings.layerTest({ enableDeviceSupport: true }))),
 );
