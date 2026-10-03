@@ -498,7 +498,11 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
     return (
       <ScrollView nestedScrollEnabled className="ml-7 max-h-96 py-1">
         {props.activities.map((row) => (
-          <View key={row.id}>{props.renderReasoning(row.workEntry.detail ?? "")}</View>
+          <View key={row.id}>
+            <MarkdownImageAssetScopeContext value={row.workEntry.id}>
+              {props.renderReasoning(row.workEntry.detail ?? "")}
+            </MarkdownImageAssetScopeContext>
+          </View>
         ))}
       </ScrollView>
     );
