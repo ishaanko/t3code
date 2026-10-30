@@ -151,6 +151,15 @@ function makeWindow(
   };
 }
 
+/**
+ * An unused session window with no reset clock has not started, which is how
+ * Claude reports it to verified Ultra accounts that have no 5-hour limit. Max
+ * reports the same while idle; its row returns once a session starts the clock.
+ */
+function isUnstartedSession(id: string, usedPercent: number, resetsAt: string | undefined) {
+  return id === "five_hour" && usedPercent === 0 && resetsAt === undefined;
+}
+
 /** Stream utilization is 0-1. Drop unnamed overage buckets until probed to avoid unreconcilable rows. */
 export function claudeRateLimitEventToUpdate(
   info: SDKRateLimitInfo,
@@ -163,6 +172,7 @@ export function claudeRateLimitEventToUpdate(
   const usedPercent = info.utilization * 100;
   const resetsAt = isoFromEpochSeconds(info.resetsAt);
   if (type in WINDOWS) {
+    if (isUnstartedSession(type, usedPercent, resetsAt)) return undefined;
     return { windows: [makeWindow(type, usedPercent, resetsAt)] };
   }
   if (type === OVERAGE_INCLUDED_EVENT_TYPE && names.overageIncluded) {
@@ -190,7 +200,9 @@ export function claudeUsageResponseToLimits(input: {
   for (const id of Object.keys(WINDOWS)) {
     const window = response.rate_limits[id as "five_hour" | "seven_day"];
     if (!window || typeof window.utilization !== "number") continue;
-    windows.push(makeWindow(id, window.utilization, isoFromString(window.resets_at)));
+    const resetsAt = isoFromString(window.resets_at);
+    if (isUnstartedSession(id, window.utilization, resetsAt)) continue;
+    windows.push(makeWindow(id, window.utilization, resetsAt));
   }
   // The CLI's overage allowlist currently has one model; events refer to its first entry.
   let overageIncluded: string | undefined;

@@ -84,14 +84,17 @@ describe("claudeUsageResponseToLimits", () => {
     ).toEqual({ overageIncluded: "Fable" });
   });
 
-  it("skips a window the endpoint reports without a utilization", () => {
+  it.each([
+    ["without a utilization", { utilization: null, resets_at: null }],
+    ["as an unstarted session", { utilization: 0, resets_at: null }],
+  ])("skips a session window the endpoint reports %s", (_, fiveHour) => {
     expect(
       claudeUsageResponseToLimits({
         checkedAt,
         response: {
           rate_limits_available: true,
           rate_limits: {
-            five_hour: { utilization: null, resets_at: null },
+            five_hour: fiveHour,
             seven_day: { utilization: 250, resets_at: null },
           },
         },
