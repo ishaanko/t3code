@@ -64,7 +64,8 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 const LINUX_ICON_SIZES = [16, 22, 24, 32, 48, 64, 128, 256, 512] as const;
 const DESKTOP_APP_ID = "com.t3tools.t3code";
 
-// Keep the installed path stable: Squirrel.Mac relaunches from the old path after an update.
+// Squirrel.Mac renames an install named after its executable to the update's executable,
+// then relaunches from the old path. One executable name for every channel keeps it in place.
 const MAC_BUNDLE_FILENAME = "T3 Code (Beta)";
 const APPLE_TEAM_ID_PATTERN = /^[A-Z0-9]{10}$/u;
 
