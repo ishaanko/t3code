@@ -521,6 +521,11 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.notEqual(stable.productName, nightly.productName);
       assert.equal((stable.mac as { executableName: string }).executableName, "T3 Code (Beta)");
       assert.equal((nightly.mac as { executableName: string }).executableName, "T3 Code (Beta)");
+      // A fresh nightly install must not land on, and replace, the stable app.
+      const dmgAppName = (config: typeof stable) =>
+        (config.dmg as { contents: ReadonlyArray<{ name?: string }> }).contents[0]?.name;
+      assert.equal(dmgAppName(stable), "T3 Code (Beta).app");
+      assert.equal(dmgAppName(nightly), "T3 Code (Nightly).app");
     }).pipe(
       Effect.provide(
         ConfigProvider.layer(

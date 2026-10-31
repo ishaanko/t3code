@@ -2880,7 +2880,9 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
         height: 432,
       },
       contents: [
-        { x: 166, y: 214, type: "file" },
+        // Name the app after its channel so a nightly installs beside stable. Squirrel.Mac
+        // never renames a bundle whose folder differs from its executable, so it stays put.
+        { x: 166, y: 214, type: "file", name: `${resolveDesktopProductName(version)}.app` },
         { x: 474, y: 214, type: "link", path: "/Applications" },
       ],
       iconSize: 120,
