@@ -1,0 +1,94 @@
+# PR #23030 evidence: WSL networkingMode=mirrored, run 2026-11-11
+# Host: Windows 11 26200, WSL2 Ubuntu, Tailscale 1.104.6 on Windows.
+# base = merge base 30724e2e9a (main), head = d3ad25e0ed (PR head).
+# "harness-<side>.mjs" is that side's apps/desktop/src/backend/DesktopServerExposure.ts bundled with a
+# small driver and run by Windows Node with the real wsl.exe, Tailscale CLI and os.networkInterfaces().
+# It sets network-accessible mode on port 3874; head also pins the WSL primary (distro Ubuntu) the way
+# DesktopBackendConfiguration.resolvePrimary does. The server is a real T3 server inside the distro on
+# 0.0.0.0:3874. Pairing is POST /api/auth/browser-session from a MacBook on the same tailnet, with a fresh
+# pairing token per attempt. The Mac is not on the devbox's LAN, so LAN addresses time out from it either way.
+# Addresses are partly redacted.
+
+[05:13:56Z] == preflight
+[05:13:56Z] $ (windows) wsl.exe -d Ubuntu -- wslinfo --networking-mode
+mirrored
+[05:13:56Z] $ (windows) "C:\Program Files\Tailscale\tailscale.exe" ip -4
+100.115.x.x
+[05:13:56Z] == base: the desktop's DesktopServerExposure on Windows (real wsl.exe, Tailscale CLI, interfaces)
+[05:13:56Z] $ (windows) node harness-base.mjs
+{
+  "label": "base",
+  "wslPrimaryPinned": false,
+  "advertised": [
+    {
+      "httpBaseUrl": "http://127.0.0.1:3874/",
+      "provider": "desktop-core",
+      "reachability": "loopback",
+      "isDefault": false
+    },
+    {
+      "httpBaseUrl": "http://172.22.x.x:3874/",
+      "provider": "desktop-core",
+      "reachability": "lan",
+      "isDefault": true
+    },
+    {
+      "httpBaseUrl": "http://100.115.x.x:3874/",
+      "provider": "tailscale",
+      "reachability": "private-network",
+      "isDefault": false
+    },
+    {
+      "httpBaseUrl": "https://itx.<tailnet>.ts.net/",
+      "provider": "tailscale",
+      "reachability": "private-network",
+      "isDefault": false
+    }
+  ]
+}
+[05:13:58Z] $ (mac) curl -m 8 -X POST http://172.22.x.x:3874/api/auth/browser-session -d '{"credential":"<fresh pairing token>"}'
+curl: (7) Failed to connect to 172.22.x.x port 3874 after 4018 ms: Couldn't connect to server
+
+HTTP 000 in 4.018514s
+[05:14:03Z] $ (mac) curl -m 8 -X POST http://100.115.x.x:3874/api/auth/browser-session -d '{"credential":"<fresh pairing token>"}'
+{"authenticated":true,"scopes":["orchestration:read","orchestration:operate","terminal:operate","relay:read","access:read","access:write","relay:write"],"permissions":["orchestration:read","orchestration:operate","settings:write","providers:manage","environment:maintain","preview:operate","diagnostics:read","terminal:read","terminal:operate","source-control:write","filesystem:read","filesystem:write","relay:read","access:read","access:write","relay:write"],"sessionMethod":"browser-session-cookie","expiresAt":"2026-12-11T05:14:03.096Z"}
+HTTP 200 in 0.021086s
+[05:14:03Z] == head: the desktop's DesktopServerExposure on Windows (real wsl.exe, Tailscale CLI, interfaces)
+[05:14:03Z] $ (windows) node harness-head.mjs
+{
+  "label": "head",
+  "wslPrimaryPinned": true,
+  "advertised": [
+    {
+      "httpBaseUrl": "http://127.0.0.1:3874/",
+      "provider": "desktop-core",
+      "reachability": "loopback",
+      "isDefault": false
+    },
+    {
+      "httpBaseUrl": "http://192.168.88.x:3874/",
+      "provider": "desktop-core",
+      "reachability": "lan",
+      "isDefault": true
+    },
+    {
+      "httpBaseUrl": "http://100.115.x.x:3874/",
+      "provider": "tailscale",
+      "reachability": "private-network",
+      "isDefault": false
+    },
+    {
+      "httpBaseUrl": "https://itx.<tailnet>.ts.net/",
+      "provider": "tailscale",
+      "reachability": "private-network",
+      "isDefault": false
+    }
+  ]
+}
+[05:14:05Z] $ (mac) curl -m 8 -X POST http://192.168.88.x:3874/api/auth/browser-session -d '{"credential":"<fresh pairing token>"}'
+curl: (28) Connection timed out after 8005 milliseconds
+
+HTTP 000 in 8.005209s
+[05:14:14Z] $ (mac) curl -m 8 -X POST http://100.115.x.x:3874/api/auth/browser-session -d '{"credential":"<fresh pairing token>"}'
+{"authenticated":true,"scopes":["orchestration:read","orchestration:operate","terminal:operate","relay:read","access:read","access:write","relay:write"],"permissions":["orchestration:read","orchestration:operate","settings:write","providers:manage","environment:maintain","preview:operate","diagnostics:read","terminal:read","terminal:operate","source-control:write","filesystem:read","filesystem:write","relay:read","access:read","access:write","relay:write"],"sessionMethod":"browser-session-cookie","expiresAt":"2026-12-11T05:14:14.139Z"}
+HTTP 200 in 0.016518s

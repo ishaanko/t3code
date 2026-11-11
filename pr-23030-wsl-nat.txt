@@ -1,0 +1,103 @@
+# PR #23030 evidence: WSL networkingMode=nat, run 2026-11-11
+# Host: Windows 11 26200, WSL2 Ubuntu, Tailscale 1.104.6 on Windows and, separately, inside the distro (temporary node itx-wsl-nat-proof).
+# base = merge base 30724e2e9a (main), head = d3ad25e0ed (PR head).
+# "harness-<side>.mjs" is that side's apps/desktop/src/backend/DesktopServerExposure.ts bundled with a
+# small driver and run by Windows Node with the real wsl.exe, Tailscale CLI and os.networkInterfaces().
+# It sets network-accessible mode on port 3874; head also pins the WSL primary (distro Ubuntu) the way
+# DesktopBackendConfiguration.resolvePrimary does. The server is a real T3 server inside the distro on
+# 0.0.0.0:3874. Pairing is POST /api/auth/browser-session from a MacBook on the same tailnet, with a fresh
+# pairing token per attempt. The Mac is not on the devbox's LAN, so LAN addresses time out from it either way.
+# Addresses are partly redacted.
+
+[05:22:10Z] == preflight
+[05:22:10Z] $ (windows) wsl.exe -d Ubuntu -- wslinfo --networking-mode
+mirrored
+[05:22:10Z] $ (windows) "C:\Program Files\Tailscale\tailscale.exe" ip -4
+100.115.x.x
+[05:22:10Z] == switch WSL to NAT (wsl --shutdown, boot)
+[05:22:10Z] $ (windows) C:\Users\ishaan\nat-proof-23030\switch.cmd nat
+nat
+[05:22:24Z] == distro's own Tailscale node and the PR head's server (0.0.0.0:3874 inside the distro)
+[05:22:24Z] $ (windows) wsl.exe -d Ubuntu -u root -- wsl-root.sh up
+networking mode: nat
+distro tailscale ip -4: 100.75.x.x
+distro hostname -I: 172.24.x.x 172.17.0.1 100.75.x.x fd7a:115c:a1e0::x 
+server listener: 0.0.0.0:3874
+[05:22:46Z] == base: the desktop's DesktopServerExposure on Windows (real wsl.exe, Tailscale CLI, interfaces)
+[05:22:46Z] $ (windows) node harness-base.mjs
+{
+  "label": "base",
+  "wslPrimaryPinned": false,
+  "advertised": [
+    {
+      "httpBaseUrl": "http://127.0.0.1:3874/",
+      "provider": "desktop-core",
+      "reachability": "loopback",
+      "isDefault": false
+    },
+    {
+      "httpBaseUrl": "http://172.22.x.x:3874/",
+      "provider": "desktop-core",
+      "reachability": "lan",
+      "isDefault": true
+    },
+    {
+      "httpBaseUrl": "http://100.115.x.x:3874/",
+      "provider": "tailscale",
+      "reachability": "private-network",
+      "isDefault": false
+    },
+    {
+      "httpBaseUrl": "https://itx.<tailnet>.ts.net/",
+      "provider": "tailscale",
+      "reachability": "private-network",
+      "isDefault": false
+    }
+  ]
+}
+[05:22:48Z] $ (mac) curl -m 8 -X POST http://172.22.x.x:3874/api/auth/browser-session -d '{"credential":"<fresh pairing token>"}'
+curl: (7) Failed to connect to 172.22.x.x port 3874 after 4015 ms: Couldn't connect to server
+
+HTTP 000 in 4.015951s
+[05:22:53Z] $ (mac) curl -m 8 -X POST http://100.115.x.x:3874/api/auth/browser-session -d '{"credential":"<fresh pairing token>"}'
+curl: (28) Connection timed out after 8003 milliseconds
+
+HTTP 000 in 8.003774s
+[05:23:01Z] == head: the desktop's DesktopServerExposure on Windows (real wsl.exe, Tailscale CLI, interfaces)
+[05:23:01Z] $ (windows) node harness-head.mjs
+{
+  "label": "head",
+  "wslPrimaryPinned": true,
+  "advertised": [
+    {
+      "httpBaseUrl": "http://127.0.0.1:3874/",
+      "provider": "desktop-core",
+      "reachability": "loopback",
+      "isDefault": false
+    },
+    {
+      "httpBaseUrl": "https://itx.<tailnet>.ts.net/",
+      "provider": "tailscale",
+      "reachability": "private-network",
+      "isDefault": false
+    },
+    {
+      "httpBaseUrl": "http://100.75.x.x:3874/",
+      "provider": "tailscale",
+      "reachability": "private-network",
+      "isDefault": false
+    }
+  ]
+}
+[05:23:03Z] $ (mac) curl -m 8 -X POST http://100.75.x.x:3874/api/auth/browser-session -d '{"credential":"<fresh pairing token>"}'
+{"authenticated":true,"scopes":["orchestration:read","orchestration:operate","terminal:operate","relay:read","access:read","access:write","relay:write"],"permissions":["orchestration:read","orchestration:operate","settings:write","providers:manage","environment:maintain","preview:operate","diagnostics:read","terminal:read","terminal:operate","source-control:write","filesystem:read","filesystem:write","relay:read","access:read","access:write","relay:write"],"sessionMethod":"browser-session-cookie","expiresAt":"2026-12-11T05:23:03.081Z"}
+HTTP 200 in 0.102088s
+[05:23:03Z] == cleanup, then restore mirrored networking
+[05:23:03Z] $ (windows) wsl.exe -d Ubuntu -u root -- wsl-root.sh down
+cleanup done; 3874 listeners: 0
+[05:23:04Z] $ (windows) C:\Users\ishaan\nat-proof-23030\switch.cmd mirrored
+mirrored
+[05:23:19Z] $ (ssh itx-linux) wslinfo --networking-mode; systemctl --user is-active t3code.service
+mirrored
+active
+[05:23:19Z] == finished
