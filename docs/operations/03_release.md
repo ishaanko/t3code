@@ -12,6 +12,8 @@ Unified release workflow: `.github/workflows/release.yml`. Beta is a product lab
 
 ## Critical release invariants
 
+- **macOS updates:** Keep the executable named `T3 Code (Beta)` across channels so Squirrel.Mac can relaunch the app after an update. The nightly DMG must still contain `T3 Code (Nightly).app` so the Homebrew cask can install it alongside stable.
+  - In the first nightly release notes after pinning the executable name, cover existing nightly installs without a stable app beside them. The updater moves that nightly to `T3 Code (Beta).app` once and fails to reopen it. Homebrew users should run `brew reinstall --cask t3-code@nightly`, then remove the moved copy.
 - **Server self-update ordering:** Connected servers update to the exact client version by downloading the GitHub Release CLI archive (or `npx t3@<version>`). Keep the release graph order strictly: `release` (CLI archives + `SHA256SUMS` + desktop installers) → `publish_cli` (`t3` npm launcher) → `deploy_web` (hosted channel alias). Never publish clients before the archives and npm launcher exist.
 - **Standalone CLI archives & Node pin:** `engines.node` in root `package.json` must stay exact (Node SEA builds reject mismatches). There is no macOS x64 CLI archive (SEA is unsupported there; x64 desktop uses Electron).
 - **Smoke fixture:** `scripts/fixtures/desktop-launch` is intentionally an old SQLite snapshot to verify forward migrations on packaged builds—never regenerate it on schema changes.
